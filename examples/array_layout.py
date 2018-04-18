@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
-from ctapipe.visualization import ArrayDisplay
-from ctapipe.utils import datasets
-
+import matplotlib.pylab as plt
 from astropy.table import Table
 from numpy import ones_like
-import matplotlib.pylab as plt
+
+from ctapipe.utils import datasets
+from ctapipe.visualization import ArrayDisplay
 
 if __name__ == '__main__':
 
@@ -14,7 +14,7 @@ if __name__ == '__main__':
 
     # load up an example table that has the telescope positions and
     # mirror areas in it:
-    arrayfile = datasets.get_dataset("PROD2_telconfig.fits.gz")
+    arrayfile = datasets.get_dataset_path("PROD2_telconfig.fits.gz")
     tels = Table.read(arrayfile, hdu="TELESCOPE_LEVEL0")
 
     X = tels['TelX']

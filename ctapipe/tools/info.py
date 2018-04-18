@@ -19,7 +19,7 @@ _dependencies = sorted(['astropy', 'matplotlib',
                         'sklearn', 'scipy', 'numba',
                         'pytest', 'ctapipe_resources', 'iminuit', 'tables'])
 
-_optional_dependencies = sorted(['pytest', 'graphviz', 'pyzmq',
+_optional_dependencies = sorted(['pytest', 'graphviz', #'pyzmq',
                                  'fitsio', 'pyhessio', 'targetio',
                                  'matplotlib'])
 
@@ -36,7 +36,7 @@ def main(args=None):
                         help='Print available versions of dependencies')
     parser.add_argument('--system', action='store_true',
                         help='Print system info')
-    parser.add_argument('--all', action='store_true',
+    parser.add_argument('--all', dest='show_all', action='store_true',
                         help='show all info')
     args = parser.parse_args(args)
 
@@ -48,7 +48,7 @@ def main(args=None):
 
 
 def info(version=False, tools=False, dependencies=False,
-         resources=False, system=False, all=False):
+         resources=False, system=False, show_all=False):
     """Print various info to the console.
 
     TODO: explain.
@@ -56,19 +56,19 @@ def info(version=False, tools=False, dependencies=False,
     logging.basicConfig(level=logging.INFO,
                         format='%(levelname)s - %(message)s')
 
-    if version or all:
+    if version or show_all:
         _info_version()
 
-    if tools or all:
+    if tools or show_all:
         _info_tools()
 
-    if dependencies or all:
+    if dependencies or show_all:
         _info_dependencies()
 
-    if resources or all:
+    if resources or show_all:
         _info_resources()
 
-    if system or all:
+    if system or show_all:
         _info_system()
 
 
@@ -141,17 +141,17 @@ def _info_resources():
 
     print("CTAPIPE_SVC_PATH: (directories where resources are searched)")
     if os.getenv('CTAPIPE_SVC_PATH') is not None:
-        for dir in datasets.get_searchpath_dirs():
-            print("\t * {}".format(dir))
+        for directory in datasets.get_searchpath_dirs():
+            print("\t * {}".format(directory))
     else:
         print("\t no path is set")
     print("")
 
     all_resources = sorted(datasets.find_all_matching_datasets("\w.*"))
-    locations = [os.path.dirname(datasets.get_dataset(name))
+    locations = [os.path.dirname(datasets.get_dataset_path(name))
                  for name in all_resources]
     home = os.path.expanduser("~")
-    resource_dir = os.path.dirname(datasets.get_dataset(
+    resource_dir = os.path.dirname(datasets.get_dataset_path(
         "HESS-I.camgeom.fits.gz"))
 
     fmt = "{name:<30.30s} : {loc:<30.30s}"

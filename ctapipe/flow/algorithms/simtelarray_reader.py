@@ -1,4 +1,4 @@
-from ctapipe.utils import get_dataset
+from ctapipe.utils import get_dataset_path
 from ctapipe.io.hessio import hessio_event_source
 from ctapipe.core import Component
 from traitlets import Unicode
@@ -16,9 +16,10 @@ class SimTelArrayReader(Component):
     def init(self):
         self.log.debug('%self.filename' % "--- SimTelArrayReader init {}---")
         try:
-            in_file = get_dataset(self.filename)
+            in_file = get_dataset_path(self.filename)
             self.source = hessio_event_source(in_file, max_events=3)
-            self.log.debug('%self.filename %self.source' % '{} successfully opened {}')
+            self.log.debug('%s successfully opened %s',
+                           self.filename, self.source)
         except Exception:
             self.log.error('could not open ' + in_file)
             return False
@@ -26,8 +27,8 @@ class SimTelArrayReader(Component):
 
     def run(self):
         for event in self.source:
-            self.log.debug('%event.dl0.event_id' %
-                           '\n--- SimTelArrayReader send event {}')
+            self.log.debug('\n--- SimTelArrayReader send event %s',
+                           event.dl0.event_id)
             yield (event)
         self.log.debug("\n--- SimTelArrayReader Done ---")
 

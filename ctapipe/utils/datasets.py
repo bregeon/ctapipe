@@ -1,24 +1,26 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
+import json
 import logging
 import os
 import re
 
+import yaml
+from astropy.table import Table
 from astropy.utils.decorators import deprecated
 from pkg_resources import resource_listdir
-from astropy.table import Table
+
 from ..core import Provenance
 
 logger = logging.getLogger(__name__)
 
 try:
     import ctapipe_resources
-except:
+except ImportError:
     raise RuntimeError("Please install the 'ctapipe-extra' package, "
                        "which contains the ctapipe_resources module "
                        "needed by ctapipe. (conda install ctapipe-extra)")
 
-
-__all__ = ['get_dataset', 'find_in_path', 'find_all_matching_datasets']
+__all__ = ['get_dataset_path', 'find_in_path', 'find_all_matching_datasets']
 
 
 def get_searchpath_dirs(searchpath=os.getenv("CTAPIPE_SVC_PATH")):
@@ -27,6 +29,7 @@ def get_searchpath_dirs(searchpath=os.getenv("CTAPIPE_SVC_PATH")):
         return []
     return os.path.expandvars(searchpath).split(':')
 
+
 def find_all_matching_datasets(pattern,
                                searchpath=None,
                                regexp_group=None):
@@ -34,7 +37,7 @@ def find_all_matching_datasets(pattern,
     Returns a list of resource names (or substrings) matching the given 
     pattern, searching first in searchpath (a colon-separated list of 
     directories) and then in the ctapipe_resources module)
-    
+
     Parameters
     ----------
     pattern: str
@@ -49,7 +52,7 @@ def find_all_matching_datasets(pattern,
     Returns
     -------
     list(str):
-       resources names, use get_dataset() to retrieve the full filename
+       resources names, use get_dataset_path() to retrieve the full filename
     """
     results = set()
 
@@ -83,7 +86,7 @@ def find_all_matching_datasets(pattern,
 def find_in_path(filename, searchpath):
     """
     Search in searchpath for filename, returning full path.
-    
+
     Parameters
     ----------
     searchpath: str
@@ -97,24 +100,24 @@ def find_in_path(filename, searchpath):
 
     """
 
-    for dir in get_searchpath_dirs(searchpath):
-        pathname = os.path.join(dir, filename)
+    for directory in get_searchpath_dirs(searchpath):
+        pathname = os.path.join(directory, filename)
         if os.path.exists(pathname):
             return pathname
 
     return None
 
 
-def get_dataset(filename):
+def get_dataset_path(filename):
     """
     Returns the full file path to an auxiliary dataset needed by 
     ctapipe, given the dataset's full name (filename with no directory).
-      
+
     This will first search for the file in directories listed in 
     tne environment variable CTAPIPE_SVC_PATH (if set), and if not found,  
     will look in the ctapipe_resources module 
     (installed with the ctapipe-extra package), which contains the defaults.
-    
+
     Parameters
     ----------
     filename: str
@@ -135,6 +138,11 @@ def get_dataset(filename):
                  "ctapipe_resources...".format(filename))
 
     return ctapipe_resources.get(filename)
+
+
+@deprecated(0.6, "use get_dataset_path instead")
+def get_dataset(filename):
+    return get_dataset_path(filename)
 
 
 def get_table_dataset(table_name, role='resource', **kwargs):
@@ -160,7 +168,7 @@ def get_table_dataset(table_name, role='resource', **kwargs):
     # a mapping of types (keys) to any extra keyword args needed for
     # table.read()
     types_to_try = {
-        '.fits.gz' : {},
+        '.fits.gz': {},
         '.fits': {},
         '.ecsv': dict(format='ascii.ecsv'),
         '.ecsv.txt': dict(format='ascii.ecsv'),
@@ -169,7 +177,7 @@ def get_table_dataset(table_name, role='resource', **kwargs):
     for table_type in types_to_try:
         filename = table_name + table_type
         try:
-            fullname = get_dataset(filename)
+            fullname = get_dataset_path(filename)
             if fullname:
                 args = types_to_try[table_type]
                 args.update(kwargs)
@@ -183,11 +191,60 @@ def get_table_dataset(table_name, role='resource', **kwargs):
         table_name, ', '.join(types_to_try)))
 
 
-@deprecated("ctapipe-0.5",alternative='get_dataset()')
+def get_structured_dataset(basename, role='resource', **kwargs):
+    """
+    find and return a YAML or JSON dataset as a dictionary
+
+    Parameters
+    ----------
+    basename: str
+        base-name (without extension) of the dataset
+    role: str
+        provenence role
+    kwargs: dict
+        any other arguments to pass on to yaml or json loader.
+
+    Returns
+    -------
+    dict:
+       dictionary of data in the file
+    """
+
+    # a mapping of types (keys) to any extra keyword args needed for
+    # table.read()
+    types_to_try = {
+        '.yaml': {},
+        '.yml': {},
+        '.json': {},
+    }
+
+    for data_type in types_to_try:
+        filename = basename + data_type
+        try:
+            fullname = get_dataset_path(filename)
+            if fullname:
+                args = types_to_try[data_type]
+                args.update(kwargs)
+
+                with open(fullname) as infile:
+                    if data_type == '.yaml' or data_type == '.yml':
+                        dataset = yaml.load(infile, **args)
+                    elif data_type == '.json':
+                        dataset = json.load(infile, **args)
+
+                Provenance().add_input_file(fullname, role)
+                return dataset
+        except FileNotFoundError:
+            pass
+
+    raise FileNotFoundError("couldn't locate structed dataset: {}[{}]".format(
+        basename, ', '.join(types_to_try)))
+
+
+@deprecated("ctapipe-0.5", alternative='get_dataset()')
 def get_path(filename):
-    return get_dataset(filename)
+    return get_dataset_path(filename)
 
 
 if __name__ == '__main__':
-
     get_table_dataset("NectarCam.camgeom")

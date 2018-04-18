@@ -1,6 +1,7 @@
 """ Class to handle configuration for algorithms """
 
 from traitlets.config import Configurable
+from traitlets import TraitError
 from abc import ABCMeta
 from logging import getLogger
 
@@ -54,18 +55,23 @@ class Component(Configurable, metaclass=AbstractConfigurableMeta):
         comp.some_option = 'test' # will fail validation
     """
 
-    def __init__(self, parent=None, **kwargs):
+    def __init__(self, parent=None, config=None, **kwargs):
         """
         Parameters
         ----------
         parent: Tool or Component
             Tool or component that is the Parent of this one
-        kwargs: type
-            other parameters
-
+        kwargs
+            Traitlets to be overridden.
+            TraitError is raised if kwargs contains a key that does not
+            correspond to a traitlet.
         """
 
-        super().__init__(parent=parent, **kwargs)
+        super().__init__(parent=parent, config=config, **kwargs)
+
+        for key, value in kwargs.items():
+            if not self.has_trait(key):
+                raise TraitError("Traitlet does not exist: {}".format(key))
 
         # set up logging
         if self.parent:

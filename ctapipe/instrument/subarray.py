@@ -36,7 +36,7 @@ class SubarrayDescription:
 
     def __init__(self, name, tel_positions=None, tel_descriptions=None):
 
-        self.name = name #: name of telescope
+        self.name = name  #: name of telescope
         self.positions = tel_positions or dict()
         self.tels = tel_descriptions or dict()
 
@@ -115,7 +115,7 @@ class SubarrayDescription:
         """
 
         meta = {}
-        meta['ORIGIN']='ctapipe.inst.SubarrayDescription'
+        meta['ORIGIN'] = 'ctapipe.inst.SubarrayDescription'
         meta['SUBARRAY'] = self.name
         meta['SOFT_VER'] = ctapipe.__version__
         meta['TAB_TYPE'] = kind
@@ -146,7 +146,7 @@ class SubarrayDescription:
             # get one example of each OpticsDescription
             for oid in optics_ids:
                 optics_list.append(next(x.optics for x in self.tels.values() if
-                                   x.optics.identifier == oid))
+                                        x.optics.identifier == oid))
 
             cols = {}
             cols['tel_description'] = [str(x) for x in optics_list]

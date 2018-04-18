@@ -1,18 +1,18 @@
 from ctapipe.io.hessio import hessio_event_source
-from ctapipe.utils import get_dataset
+from ctapipe.utils import get_dataset_path
 from ctapipe.plotting.camera import CameraPlotter
 import numpy as np
 
 
 def test_eventplotter():
-    dataset = get_dataset("gamma_test.simtel.gz")
+    dataset = get_dataset_path("gamma_test.simtel.gz")
     source = hessio_event_source(dataset, max_events=1)
     event = next(source)
     del source
 
     telid = list(event.r0.tels_with_data)[0]
 
-    data = event.r0.tel[telid].adc_samples[0]
+    data = event.r0.tel[telid].waveform[0]
     plotter = CameraPlotter(event)
 
     camera = plotter.draw_camera(telid, data[:, 0])
@@ -29,6 +29,3 @@ def test_eventplotter():
     assert line is not None
     np.testing.assert_array_equal(line.get_xdata(), [0, 0])
 
-
-if __name__ == '__main__':
-    test_eventplotter()
