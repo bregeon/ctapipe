@@ -19,13 +19,19 @@ from math import pow
 
 
 def rayleigh_extinction_PT(wl=355):
-    ''' Compute Rayleigh scattering BetaS at reference pressure and temperature
     '''
-    #print("Calculating Reference Extinction for wl=",wl)  
+    Compute Rayleigh scattering BetaS at reference pressure and temperature
+
+    Parameters
+    ----------
+    wl : integer
+        wavelength in nm
+    '''
+    #print("Calculating Reference Extinction for wl=",wl)
     A=0.
     B=0.
     C=0.
-    D=0.  
+    D=0.
     if wl>0.2 and wl<=0.5:
         A = 7.68246*1e-4
         B = 3.55212
@@ -45,13 +51,23 @@ def rayleigh_extinction_PT(wl=355):
 
 
 def rayleigh_extinction(wl, P, T):
-    ''' Compute Rayleigh scattering extinction for a given wave lenght
+    '''
+    Compute Rayleigh scattering extinction for a given wave lenght
     temperature and pressure
-    '''    
+
+    Parameters
+    ----------
+    wl : integer
+        wavelength in nm
+    P : float
+        pressure in mbars
+    T : float
+        temperature in K
+    '''
     fPs = 1013.25 #  standard pressure in mbar
-    fTs = 288.15  #  standard temerature in K (15°C)    
+    fTs = 288.15  #  standard temerature in K (15°C)
     betaS = rayleigh_extinction_PT(wl)
-    beta = betaS * (P/fPs) * (fTs/T)    
+    beta = betaS * (P/fPs) * (fTs/T)
     return beta
 
 
@@ -61,7 +77,7 @@ if __name__ == '__main__':
     print('Rayleigh scattering extinction for wl=355 : ',
               rayleigh_extinction_PT(0.35))
     print()
-    print('Verification BetaS(0.53) = 1.3352e-02 ~ 1.336e-02')    
+    print('Verification BetaS(0.53) = 1.3352e-02 ~ 1.336e-02')
     print('Rayleigh scattering extinction for wl=532 : ',
               rayleigh_extinction_PT(0.53))
 
