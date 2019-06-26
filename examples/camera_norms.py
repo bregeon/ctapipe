@@ -2,7 +2,7 @@
 """
 Example of drawing a Camera using different norms
 """
-
+import astropy.units as u
 import matplotlib.pylab as plt
 from matplotlib.colors import PowerNorm
 from matplotlib.style import use
@@ -20,18 +20,18 @@ if __name__ == '__main__':
 
     titles = 'Linear Scale', 'Log-Scale', 'PowerNorm(gamma=2)'
 
-    model = toymodel.generate_2d_shower_model(
-        centroid=(0.2, 0.0),
-        width=0.01,
-        length=0.1,
+    model = toymodel.Gaussian(
+        x=0.2 * u.m,
+        y=0.0 * u.m,
+        width=0.05 * u.m,
+        length=0.15 * u.m,
         psi='35d',
     )
 
-    image, sig, bg = toymodel.make_toymodel_shower_image(
+    image, sig, bg = model.generate_image(
         geom,
-        model.pdf,
-        intensity=50,
-        nsb_level_pe=1000,
+        intensity=1500,
+        nsb_level_pe=5,
     )
 
     disps = []

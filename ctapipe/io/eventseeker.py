@@ -24,21 +24,21 @@ class EventSeeker(Component):
     `ctapipe.io.eventfilereader.EventSource` (such as
     `ctapipe.io.hessiofilereader.HessioFileReader`), which will be used to
     loop through the file and provide the event container, filled with the
-    event information using the methods defined in the event_source for that file
-    format.
+    event information using the methods defined in the event_source for that
+    file format.
 
     To obtain a particular event in a hessio file:
 
-    >>> from ctapipe.io.hessioeventsource import HESSIOEventSource
-    >>> event_source = HessioFileReader(input_path="/path/to/file")
+    >>> from ctapipe.io.hessioeventsource import SimTelEventSource
+    >>> event_source = SimTelEventSource(input_url="/path/to/file")
     >>> seeker = EventSeeker(event_source=event_source)
     >>> event = seeker[2]
     >>> print(event.count)
 
     To obtain a particular event in a hessio file from its event_id:
 
-    >>> from ctapipe.io.hessioeventsource import HESSIOEventSource
-    >>> event_source = HessioFileReader(input_path="/path/to/file")
+    >>> from ctapipe.io.hessioeventsource import SimTelEventSource
+    >>> event_source = SimTelEventSource(input_url="/path/to/file")
     >>> seeker = EventSeeker(event_source=event_source)
     >>> event = seeker["101"]
     >>> print(event.count)
@@ -51,23 +51,23 @@ class EventSeeker(Component):
 
     To obtain a slice of events in a hessio file:
 
-    >>> from ctapipe.io.hessioeventsource import HESSIOEventSource
-    >>> event_source = HessioFileReader(input_path="/path/to/file")
+    >>> from ctapipe.io import SimTelEventSource
+    >>> event_source = SimTelEventSource(input_url="/path/to/file")
     >>> seeker = EventSeeker(event_source=event_source)
     >>> event_list = seeker[3:6]
     >>> print([event.count for event in event_list])
 
     To obtain a list of events in a hessio file:
 
-    >>> from ctapipe.io.hessioeventsource import HESSIOEventSource
-    >>> event_source = HessioFileReader(input_path="/path/to/file")
+    >>> from ctapipe.io import SimTelEventSource
+    >>> event_source = SimTelEventSource(input_url="/path/to/file")
     >>> seeker = EventSeeker(event_source)
     >>> event_indicis = [2, 6, 8]
     >>> event_list = seeker[event_indicis]
     >>> print([event.count for event in event_list])
     """
 
-    def __init__(self, reader, config=None, tool=None, **kwargs):
+    def __init__(self, reader, config=None, parent=None, **kwargs):
         """
         Class to handle generic input files. Enables obtaining the "source"
         generator, regardless of the type of file (either hessio or camera
@@ -89,11 +89,11 @@ class EventSeeker(Component):
             Set to None if no Tool to pass.
         kwargs
         """
-        super().__init__(config=config, parent=tool, **kwargs)
+        super().__init__(config=config, parent=parent, **kwargs)
 
         if reader.is_stream:
-            raise IOError("Reader is not compatible as input to the event_source "
-                          "is a stream (seeking not possible)")
+            raise IOError("Reader is not compatible as input to the "
+                          "event_source is a stream (seeking not possible)")
 
         self._reader = reader
 
@@ -179,9 +179,9 @@ class EventSeeker(Component):
 
         try:
             if not use_event_id:
-                event = self._reader.get_event_by_index(item)
+                event = self._reader._get_event_by_index(item)
             else:
-                event = self._reader.get_event_by_id(item)
+                event = self._reader._get_event_by_id(item)
         except AttributeError:
             if self._getevent_warn:
                 self.log.warning("Seeking to event by looping through "
@@ -218,7 +218,7 @@ class EventSeeker(Component):
         for event in self._source:
             if event.count == index:
                 return event
-        raise IndexError("Event index {} not found in file".format(index))
+        raise IndexError(f"Event index {index} not found in file")
 
     def _get_event_by_id(self, event_id):
         """
@@ -243,7 +243,7 @@ class EventSeeker(Component):
         for event in self:  # Event Ids may not be in order
             if event.r0.event_id == event_id:
                 return event
-        raise IndexError("Event id {} not found in file".format(event_id))
+        raise IndexError(f"Event id {event_id} not found in file")
 
     def __len__(self):
         """

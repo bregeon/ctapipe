@@ -2,7 +2,7 @@
 """
 
 TODO:
- - Speed tests, need to be certain the looping on all telescopes is not killing 
+- Speed tests, need to be certain the looping on all telescopes is not killing
 performance
 - Introduce new weighting schemes
 - Make intersect_lines code more readable
@@ -13,8 +13,11 @@ import itertools
 import astropy.units as u
 from ctapipe.reco.reco_algorithms import Reconstructor
 from ctapipe.io.containers import ReconstructedShowerContainer
-from ctapipe.coordinates import *
 from ctapipe.instrument import get_atmosphere_profile_functions
+
+from astropy.coordinates import SkyCoord, AltAz
+from ctapipe.coordinates import NominalFrame
+from ctapipe.coordinates import TiltedGroundFrame, project_to_ground
 
 __all__ = [
     'HillasIntersection'
@@ -62,7 +65,7 @@ class HillasIntersection(Reconstructor):
         tel_y: dict
             Dictionary containing telescope position on ground for all
             telescopes in reconstruction
-        array_direction: HorizonFrame
+        array_direction: AltAz
             Pointing direction of the array
 
         Returns
@@ -76,32 +79,40 @@ class HillasIntersection(Reconstructor):
         err_x *= u.rad
         err_y *= u.rad
 
-        nom = NominalFrame(x=src_x * u.rad, y=src_y * u.rad,
-                           array_direction=array_direction)
-        horiz = nom.transform_to(HorizonFrame())
+        nom = SkyCoord(
+            x=src_x * u.rad,
+            y=src_y * u.rad,
+            frame=NominalFrame(array_direction=array_direction)
+        )
+        horiz = nom.transform_to(AltAz())
+
         result = ReconstructedShowerContainer()
         result.alt, result.az = horiz.alt, horiz.az
 
-        tilt = TiltedGroundFrame(x=core_x * u.m, y=core_y * u.m,
-                                 pointing_direction=array_direction)
+        tilt = SkyCoord(
+            x=core_x * u.m,
+            y=core_y * u.m,
+            frame=TiltedGroundFrame(pointing_direction=array_direction),
+        )
         grd = project_to_ground(tilt)
         result.core_x = grd.x
         result.core_y = grd.y
 
-        x_max = self.reconstruct_xmax(nom.x, nom.y,
-                                      tilt.x, tilt.y,
-                                      hillas_parameters,
-                                      tel_x, tel_y,
-                                      90 * u.deg - array_direction.alt)
+        x_max = self.reconstruct_xmax(
+            nom.x, nom.y,
+            tilt.x, tilt.y,
+            hillas_parameters,
+            tel_x, tel_y,
+            90 * u.deg - array_direction.alt,
+        )
 
-        result.core_uncert = np.sqrt(core_err_x * core_err_x
-                                     + core_err_y * core_err_y) * u.m
+        result.core_uncert = np.sqrt(core_err_x**2 + core_err_y**2) * u.m
 
         result.tel_ids = [h for h in hillas_parameters.keys()]
-        result.average_size = np.mean([h.size for h in hillas_parameters.values()])
+        result.average_intensity = np.mean([h.intensity for h in hillas_parameters.values()])
         result.is_valid = True
 
-        src_error = np.sqrt(err_x * err_x + err_y * err_y)
+        src_error = np.sqrt(err_x**2 + err_y**2)
         result.alt_uncert = src_error.to(u.deg)
         result.az_uncert = src_error.to(u.deg)
         result.h_max = x_max
@@ -138,9 +149,9 @@ class HillasIntersection(Reconstructor):
         h1 = list(
             map(
                 lambda h: [h[0].psi.to(u.rad).value,
-                           h[0].cen_x.value,
-                           h[0].cen_y.value,
-                           h[0].size], hillas_pairs
+                           h[0].x.value,
+                           h[0].y.value,
+                           h[0].intensity], hillas_pairs
             )
         )
         h1 = np.array(h1)
@@ -148,9 +159,9 @@ class HillasIntersection(Reconstructor):
 
         h2 = list(
             map(lambda h: [h[1].psi.to(u.rad).value,
-                           h[1].cen_x.value,
-                           h[1].cen_y.value,
-                           h[1].size], hillas_pairs)
+                           h[1].x.value,
+                           h[1].y.value,
+                           h[1].intensity], hillas_pairs)
         )
         h2 = np.array(h2)
         h2 = np.transpose(h2)
@@ -220,7 +231,7 @@ class HillasIntersection(Reconstructor):
 
         tx = np.zeros((len(tel_x), 2))
         ty = np.zeros((len(tel_y), 2))
-        for i in range(len(tel_x)):
+        for i, _ in enumerate(tel_x):
             tx[i][0], tx[i][1] = tel_x[i][0].value, tel_x[i][1].value
             ty[i][0], ty[i][1] = tel_y[i][0].value, tel_y[i][1].value
 
@@ -228,11 +239,11 @@ class HillasIntersection(Reconstructor):
         tel_y = np.array(ty)
 
         # Copy parameters we need to a numpy array to speed things up
-        h1 = map(lambda h: [h[0].psi.to(u.rad).value, h[0].size], hillas_pairs)
+        h1 = map(lambda h: [h[0].psi.to(u.rad).value, h[0].intensity], hillas_pairs)
         h1 = np.array(list(h1))
         h1 = np.transpose(h1)
 
-        h2 = map(lambda h: [h[1].psi.to(u.rad).value, h[1].size], hillas_pairs)
+        h2 = map(lambda h: [h[1].psi.to(u.rad).value, h[1].intensity], hillas_pairs)
         h2 = np.array(list(h2))
         h2 = np.transpose(h2)
 
@@ -261,7 +272,7 @@ class HillasIntersection(Reconstructor):
     def reconstruct_xmax(self, source_x, source_y, core_x, core_y,
                          hillas_parameters, tel_x, tel_y, zen):
         """
-        Geometrical depth of shower maximum reconstruction, assuming the shower 
+        Geometrical depth of shower maximum reconstruction, assuming the shower
         maximum lies at the image centroid
 
         Parameters
@@ -297,9 +308,9 @@ class HillasIntersection(Reconstructor):
 
         # Loops over telescopes in event
         for tel in hillas_parameters.keys():
-            cog_x.append(hillas_parameters[tel].cen_x.to(u.rad).value)
-            cog_y.append(hillas_parameters[tel].cen_y.to(u.rad).value)
-            amp.append(hillas_parameters[tel].size)
+            cog_x.append(hillas_parameters[tel].x.to(u.rad).value)
+            cog_y.append(hillas_parameters[tel].y.to(u.rad).value)
+            amp.append(hillas_parameters[tel].intensity)
 
             tx.append(tel_x[tel].to(u.m).value)
             ty.append(tel_y[tel].to(u.m).value)
@@ -358,20 +369,20 @@ class HillasIntersection(Reconstructor):
         """
         sin_1 = np.sin(phi1)
         cos_1 = np.cos(phi1)
-        A1 = sin_1
-        B1 = -1 * cos_1
-        C1 = yp1 * cos_1 - xp1 * sin_1
+        a1 = sin_1
+        b1 = -1 * cos_1
+        c1 = yp1 * cos_1 - xp1 * sin_1
 
-        s2 = np.sin(phi2)
-        c2 = np.cos(phi2)
+        sin_2 = np.sin(phi2)
+        cos_2 = np.cos(phi2)
 
-        A2 = s2
-        B2 = -1 * c2
-        C2 = yp2 * c2 - xp2 * s2
+        a2 = sin_2
+        b2 = -1 * cos_2
+        c2 = yp2 * cos_2 - xp2 * sin_2
 
-        det_ab = (A1 * B2 - A2 * B1)
-        det_bc = (B1 * C2 - B2 * C1)
-        det_ca = (C1 * A2 - C2 * A1)
+        det_ab = (a1 * b2 - a2 * b1)
+        det_bc = (b1 * c2 - b2 * c1)
+        det_ca = (c1 * a2 - c2 * a1)
 
         # if  math.fabs(det_ab) < 1e-14 : # /* parallel */
         #    return 0,0
@@ -385,7 +396,7 @@ class HillasIntersection(Reconstructor):
         return (p1 * p2) / (p1 + p2)
 
     @staticmethod
-    def weight_HESS(p1, p2):
+    def weight_hess(p1, p2):
         return 1 / ((1 / p1) + (1 / p2))
 
     @staticmethod

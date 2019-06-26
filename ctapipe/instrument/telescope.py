@@ -13,9 +13,9 @@ Todo:
   telescope :-))
 
 """
-
-from .optics import OpticsDescription
 from .camera import CameraGeometry
+from .guess import UNKNOWN_TELESCOPE, guess_telescope
+from .optics import OpticsDescription
 
 
 class TelescopeDescription:
@@ -31,48 +31,30 @@ class TelescopeDescription:
 
     Parameters
     ----------
+    name: str
+        Telescope name
+    tel_type: str
+        Telescope type
     optics: OpticsDescription
        the optics associated with this telescope
     camera: CameraGeometry
        the camera associated with this telescope
     """
 
+    def __init__(self, name, tel_type, optics: OpticsDescription, camera: CameraGeometry):
 
-    def __init__(self,
-                 optics: OpticsDescription,
-                 camera: CameraGeometry):
+        self.name = name
+        self.type = tel_type
+        self.optics = optics
+        self.camera = camera
 
-        self._optics = optics
-        self._camera = camera
+    def __hash__(self):
+        """Make this hashable, so it can be used as dict keys or in sets"""
+        return hash((self.optics, self.camera))
 
-    @property
-    def optics(self):
-        """ OpticsDescription for this telescope """
-        return self._optics
-
-    @property
-    def camera(self):
-        """ CameraGeometry for this telescope"""
-        return self._camera
-
-    @classmethod
-    def guess(cls, pix_x, pix_y, equivalent_focal_length):
-        """
-        Construct a TelescopeDescription from metadata, filling in the
-        missing information using a lookup table.
-
-        Parameters
-        ----------
-        pix_x: array
-           array of pixel x-positions with units
-        pix_y: array
-           array of pixel y-positions with units
-        equivalent_focal_length: float
-           effective focal length of telescope with units (m)
-        """
-        camera = CameraGeometry.guess(pix_x, pix_y, equivalent_focal_length)
-        optics = OpticsDescription.guess(equivalent_focal_length)
-        return cls(optics=optics, camera=camera)
+    def __eq__(self, other):
+        """Make this hashable, so it can be used as dict keys or in sets"""
+        return hash(self) == hash(other)
 
     @classmethod
     def from_name(cls, optics_name, camera_name):
@@ -93,14 +75,25 @@ class TelescopeDescription:
         TelescopeDescription
 
         """
+
         camera = CameraGeometry.from_name(camera_name)
         optics = OpticsDescription.from_name(optics_name)
-        return cls(optics=optics, camera=camera)
+
+        try:
+            result = guess_telescope(camera.n_pixels, optics.equivalent_focal_length)
+        except ValueError:
+            result = UNKNOWN_TELESCOPE
+
+        return cls(name=result.name, tel_type=result.type, optics=optics, camera=camera)
 
     def __str__(self):
-        return str(self.optics) + ":" + str(self.camera)
+        return f"{self.type}_{self.optics}_{self.camera}"
 
     def __repr__(self):
-        return "{}(optics={}, camera={})".format(self.__class__.__name__,
-                                                 str(self.optics),
-                                                 str(self.camera))
+        return "{}(type={}, name={}, optics={}, camera={})".format(
+            self.__class__.__name__,
+            self.type,
+            self.name,
+            str(self.optics),
+            str(self.camera),
+        )

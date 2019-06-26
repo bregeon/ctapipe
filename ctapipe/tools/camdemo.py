@@ -11,18 +11,19 @@ from astropy import units as u
 from matplotlib.animation import FuncAnimation
 
 from ctapipe.core import Tool, traits
-from ctapipe.image import toymodel, tailcuts_clean, dilate
+from ctapipe.image import toymodel, tailcuts_clean, dilate, \
+    hillas_parameters, HillasParameterizationError
 from ctapipe.instrument import TelescopeDescription, CameraGeometry, \
     OpticsDescription
 from ctapipe.visualization import CameraDisplay
 
 
 class CameraDemo(Tool):
-    name = u"ctapipe-camdemo"
+    name = "ctapipe-camdemo"
     description = "Display fake events in a demo camera"
 
     delay = traits.Int(50, help="Frame delay in ms", min=20).tag(config=True)
-    cleanframes = traits.Int(100, help="Number of frames between turning on "
+    cleanframes = traits.Int(20, help="Number of frames between turning on "
                                        "cleaning", min=0).tag(config=True)
     autoscale = traits.Bool(False, help='scale each frame to max if '
                                         'True').tag(config=True)
@@ -62,7 +63,7 @@ class CameraDemo(Tool):
         self.imclean = False
 
     def start(self):
-        self.log.info("Starting CameraDisplay for {}".format(self.camera))
+        self.log.info(f"Starting CameraDisplay for {self.camera}")
         self._display_camera_animation()
 
     def _display_camera_animation(self):
@@ -77,33 +78,44 @@ class CameraDemo(Tool):
 
         # poor-man's coordinate transform from telscope to camera frame (it's
         # better to use ctapipe.coordiantes when they are stable)
-        scale = tel.optics.equivalent_focal_length.to(geom.pix_x.unit).value
+        foclen = tel.optics.equivalent_focal_length.to(geom.pix_x.unit).value
         fov = np.deg2rad(4.0)
-        maxwid = np.deg2rad(0.01)
-        maxlen = np.deg2rad(0.03)
+        scale = foclen
+        minwid = np.deg2rad(0.1)
+        maxwid = np.deg2rad(0.3)
+        maxlen = np.deg2rad(0.5)
+
+        self.log.debug(f"scale={scale} m, wid=({minwid}-{maxwid})")
 
         disp = CameraDisplay(
             geom, ax=ax, autoupdate=True,
-            title="{}, f={}".format(tel, tel.optics.equivalent_focal_length)
+            title=f"{tel}, f={tel.optics.equivalent_focal_length}"
         )
         disp.cmap = plt.cm.terrain
 
         def update(frame):
-
-            self.log.debug("Frame=", frame)
-            centroid = np.random.uniform(-fov, fov, size=2) * scale
-            width = np.random.uniform(0, maxwid) * scale
+            x, y = np.random.uniform(-fov, fov, size=2) * scale
+            width = np.random.uniform(0, maxwid - minwid) * scale + minwid
             length = np.random.uniform(0, maxlen) * scale + width
             angle = np.random.uniform(0, 360)
-            intens = np.random.exponential(2) * 50
-            model = toymodel.generate_2d_shower_model(centroid=centroid,
-                                                      width=width,
-                                                      length=length,
-                                                      psi=angle * u.deg)
-            image, sig, bg = toymodel.make_toymodel_shower_image(geom,
-                                                                 model.pdf,
-                                                                 intensity=intens,
-                                                                 nsb_level_pe=5000)
+            intens = np.random.exponential(2) * 500
+            model = toymodel.Gaussian(
+                x=x * u.m,
+                y=y * u.m,
+                width=width * u.m,
+                length=length * u.m,
+                psi=angle * u.deg,
+            )
+            self.log.debug(
+                "Frame=%d width=%03f length=%03f intens=%03d",
+                frame, width, length, intens
+            )
+
+            image, _, _ = model.generate_image(
+                geom,
+                intensity=intens,
+                nsb_level_pe=3,
+            )
 
             # alternate between cleaned and raw images
             if self._counter == self.cleanframes:
@@ -113,21 +125,32 @@ class CameraDemo(Tool):
                 plt.suptitle("Image Cleaning OFF")
                 self.imclean = False
                 self._counter = 0
+                disp.clear_overlays()
 
             if self.imclean:
-                cleanmask = tailcuts_clean(geom, image / 80.0)
-                for ii in range(3):
+                cleanmask = tailcuts_clean(geom, image,
+                                           picture_thresh=10.0,
+                                           boundary_thresh=5.0)
+                for ii in range(2):
                     dilate(geom, cleanmask)
                 image[cleanmask == 0] = 0  # zero noise pixels
+                try:
+                    hillas = hillas_parameters(geom, image)
+                    disp.overlay_moments(hillas, with_label=False,
+                                         color='red', alpha=0.7,
+                                         linewidth=2, linestyle='dashed')
+                except HillasParameterizationError:
+                    disp.clear_overlays()
+                    pass
 
-            self.log.debug("count = {}, image sum={} max={}"
-                           .format(self._counter, image.sum(), image.max()))
+            self.log.debug("Frame=%d  image_sum=%.3f max=%.3f",
+                           self._counter, image.sum(), image.max())
             disp.image = image
 
             if self.autoscale:
                 disp.set_limits_percent(95)
             else:
-                disp.set_limits_minmax(-100, 4000)
+                disp.set_limits_minmax(-5, 200)
 
             disp.axes.figure.canvas.draw()
             self._counter += 1
@@ -136,7 +159,7 @@ class CameraDemo(Tool):
         frames = None if self.num_events == 0 else self.num_events
         repeat = True if self.num_events == 0 else False
 
-        self.log.info("Running for {} frames".format(frames))
+        self.log.info(f"Running for {frames} frames")
         self.anim = FuncAnimation(fig, update,
                                   interval=self.delay,
                                   frames=frames,

@@ -1,11 +1,13 @@
 import logging
+import warnings
 
 import numpy as np
 from astropy import log
 from astropy import units as u
+from astropy.coordinates import Angle, SkyCoord, AltAz
 from astropy.utils.decorators import deprecated
 
-from ctapipe.coordinates import CameraFrame, NominalFrame, HorizonFrame
+from ctapipe.coordinates import CameraFrame, NominalFrame
 from ctapipe.image.cleaning import tailcuts_clean
 from ctapipe.image.muon.features import ring_containment
 from ctapipe.image.muon.features import ring_completeness
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def analyze_muon_event(event):
     """
-    Generic muon event analyzer. 
+    Generic muon event analyzer.
 
     Parameters
     ----------
@@ -28,13 +30,13 @@ def analyze_muon_event(event):
 
     Returns
     -------
-    muonringparam, muonintensityparam : MuonRingParameter 
+    muonringparam, muonintensityparam : MuonRingParameter
     and MuonIntensityParameter container event
 
     """
 
-    names = ['LST:LSTCam', 'MST:NectarCam', 'MST:FlashCam', 'MST-SCT:SCTCam',
-             'SST-1M:DigiCam', 'SST-GCT:CHEC', 'SST-ASTRI:ASTRICam', 'SST-ASTRI:CHEC']
+    names = ['LST_LST_LSTCam', 'MST_MST_NectarCam', 'MST_MST_FlashCam', 'MST_SCT_SCTCam',
+             'SST_1M_DigiCam', 'SST_GCT_CHEC', 'SST_ASTRI_ASTRICam', 'SST_ASTRI_CHEC']
     tail_cuts = [(5, 7), (5, 7), (10, 12), (5, 7),
                 (5, 7), (5, 7), (5, 7), (5, 7)]  # 10, 12?
     impact = [(0.2, 0.9), (0.1, 0.95), (0.2, 0.9), (0.2, 0.9),
@@ -55,7 +57,8 @@ def analyze_muon_event(event):
     sec_rad = [0. * u.m, 0. * u.m, 0. * u.m, 2.7 * u.m,
                0. * u.m, 1. * u.m, 1.8 * u.m, 1.8 * u.m]
     sct = [False, False, False, True, False, True, True, True]
-
+    # Added cleaning here. All these options should go to an input card
+    cleaning = True
 
     muon_cuts = {'Name': names, 'tail_cuts': tail_cuts, 'Impact': impact,
                  'RingWidth': ringwidth, 'total_pix': total_pix,
@@ -89,26 +92,38 @@ def analyze_muon_event(event):
 
         clean_mask = tailcuts_clean(geom, image, picture_thresh=tailcuts[0],
                                     boundary_thresh=tailcuts[1])
-        camera_coord = CameraFrame(
-            x=x, y=y,
-            focal_length=teldes.optics.equivalent_focal_length,
-            rotation=geom.pix_rotation
-        )
 
         # TODO: correct this hack for values over 90
         altval = event.mcheader.run_array_direction[1]
-        if altval > np.pi / 2.:
-            altval = np.pi / 2.
+        if altval > Angle(90, unit=u.deg):
+            warnings.warn('Altitude over 90 degrees')
+            altval = Angle(90, unit=u.deg)
 
-        altaz = HorizonFrame(alt=altval * u.rad,
-                             az=event.mcheader.run_array_direction[0] * u.rad)
-        nom_coord = camera_coord.transform_to(
-            NominalFrame(array_direction=altaz, pointing_direction=altaz)
+        telescope_pointing = SkyCoord(
+            alt=altval,
+            az=event.mcheader.run_array_direction[0],
+            frame=AltAz()
         )
-        x = nom_coord.x.to(u.deg)
-        y = nom_coord.y.to(u.deg)
+        camera_coord = SkyCoord(
+            x=x, y=y,
+            frame=CameraFrame(
+                focal_length=teldes.optics.equivalent_focal_length,
+                rotation=geom.pix_rotation,
+                telescope_pointing=telescope_pointing,
+            )
+        )
 
-        img = image * clean_mask
+        nom_coord = camera_coord.transform_to(
+            NominalFrame(origin=telescope_pointing)
+        )
+        x = nom_coord.delta_az.to(u.deg)
+        y = nom_coord.delta_alt.to(u.deg)
+
+        if(cleaning):
+            img = image * clean_mask
+        else:
+            img = image
+
         muonring = ChaudhuriKunduRingFitter(None)
 
         logger.debug("img: %s mask: %s, x=%s y= %s", np.sum(image),
@@ -204,7 +219,7 @@ def analyze_muon_event(event):
                     muonringparam.ring_center_y,
                     threshold=30,
                     bins=30)
-
+                muonintensityoutput.ring_size = np.sum(pix_im)
 
                 dist_ringwidth_mask = np.abs(dist - muonringparam.ring_radius
                                              ) < (muonintensityoutput.ring_width)
@@ -261,10 +276,10 @@ def analyze_muon_source(source):
     A ctapipe event container (MuonParameter) with muon information
 
     """
-    log.info("[FUNCTION] {}".format(__name__))
+    log.info(f"[FUNCTION] {__name__}")
 
     if geom_dict is None:
-        geom_dict = {}        
+        geom_dict = {}
     numev = 0
     for event in source:  # Put a limit on number of events
         numev += 1

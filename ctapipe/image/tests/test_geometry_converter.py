@@ -1,23 +1,38 @@
-from copy import deepcopy
 import pytest
 import numpy as np
-from matplotlib import pyplot as plt
-
-from ctapipe.image.cleaning import tailcuts_clean
 from ctapipe.image.geometry_converter import (convert_geometry_hex1d_to_rect2d,
                                               convert_geometry_rect2d_back_to_hexe1d,
                                               astri_to_2d_array, array_2d_to_astri,
                                               chec_to_2d_array, array_2d_to_chec)
-from ctapipe.image.hillas import hillas_parameters, HillasParameterizationError
+from ctapipe.image.hillas import hillas_parameters
 from ctapipe.instrument import CameraGeometry
-from ctapipe.io.hessio import hessio_event_source
-from ctapipe.utils import get_dataset_path
-from ctapipe.visualization import CameraDisplay
-from ctapipe.image.toymodel import generate_2d_shower_model, make_toymodel_shower_image
-from astropy import units as u
+from ctapipe.image.toymodel import Gaussian
+import astropy.units as u
 
 
 cam_ids = CameraGeometry.get_known_camera_names()
+
+
+def create_mock_image(geom):
+    '''
+    creates a mock image, which parameters are adapted to the camera size
+    '''
+
+    camera_r = np.max(np.sqrt(geom.pix_x**2 + geom.pix_y**2))
+    model = Gaussian(
+        x=0.3 * camera_r,
+        y=0 * u.m,
+        width=0.03 * camera_r,
+        length=0.10 * camera_r,
+        psi="25d"
+    )
+
+    _, image, _ = model.generate_image(
+        geom,
+        intensity=0.5 * geom.n_pixels,
+        nsb_level_pe=3,
+    )
+    return image
 
 
 @pytest.mark.parametrize("rot", [3, ])
@@ -25,14 +40,7 @@ cam_ids = CameraGeometry.get_known_camera_names()
 def test_convert_geometry(cam_id, rot):
 
     geom = CameraGeometry.from_name(cam_id)
-
-    model = generate_2d_shower_model(centroid=(0.4, 0), width=0.01, length=0.03,
-                                     psi="25d")
-
-    _, image, _ = make_toymodel_shower_image(geom, model.pdf,
-                                             intensity=50,
-                                             nsb_level_pe=100)
-
+    image = create_mock_image(geom)
     hillas_0 = hillas_parameters(geom, image)
 
     if geom.pix_type == 'hexagonal':
@@ -78,14 +86,7 @@ def test_convert_geometry_mock(cam_id, rot):
     """
 
     geom = CameraGeometry.from_name(cam_id)
-
-    model = generate_2d_shower_model(centroid=(0.4, 0), width=0.01, length=0.03,
-                                     psi="25d")
-
-    _, image, _ = make_toymodel_shower_image(geom, model.pdf,
-                                             intensity=50,
-                                             nsb_level_pe=100)
-
+    image = create_mock_image(geom)
     hillas_0 = hillas_parameters(geom, image)
 
     if geom.pix_type == 'hexagonal':
