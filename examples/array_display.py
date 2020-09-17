@@ -13,8 +13,8 @@ if __name__ == "__main__":
     plt.figure(figsize=(9.5, 8.5))
 
     # load up a single event, so we can get the subarray info:
-    source = event_source(
-        datasets.get_dataset_path("gamma_test_large.simtel.gz"), max_events=1,
+    source = event_source("/data/CTA/gamma_20deg_0deg_run100___cta-prod5-lapalma_desert-2158m-LaPalma-dark.simtel.zst",
+                          max_events=1,
     )
 
     event = next(iter(source))
