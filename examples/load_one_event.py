@@ -8,9 +8,7 @@ from ctapipe.calib import CameraCalibrator
 from ctapipe.io import event_source
 from ctapipe.utils import get_dataset_path
 
-if __name__ == '__main__':
-
-    calib = CameraCalibrator()
+if __name__ == "__main__":
 
     if len(sys.argv) >= 2:
         filename = sys.argv[1]
@@ -18,6 +16,7 @@ if __name__ == '__main__':
         filename = get_dataset_path("gamma_test_large.simtel.gz")
 
     with event_source(filename, max_events=1) as source:
+        calib = CameraCalibrator(subarray=source.subarray)
         for event in source:
             calib(event)
 

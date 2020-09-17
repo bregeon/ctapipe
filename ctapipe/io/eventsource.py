@@ -2,19 +2,14 @@
 Handles reading of different event/waveform containing files
 """
 from abc import abstractmethod
-from os.path import exists
-
-from traitlets import Unicode, Int, Set, TraitError
 from traitlets.config.loader import LazyConfigValue
 
-from ctapipe.core import Component, non_abstract_children
+from ctapipe.core import Component, non_abstract_children, ToolConfigurationError
 from ctapipe.core import Provenance
 from ctapipe.core.plugins import detect_and_import_io_plugins
+from ctapipe.core.traits import Path, Int, Set
 
-__all__ = [
-    'EventSource',
-    'event_source',
-]
+__all__ = ["EventSource", "event_source"]
 
 
 def event_source(input_url, **kwargs):
@@ -102,31 +97,31 @@ class EventSource(Component):
         Path to the input event file.
     max_events : int
         Maximum number of events to loop through in generator
-    metadata : dict
-        A dictionary containing the metadata of the file. This could include:
-        * is_simulation (bool indicating if the file contains simulated events)
-        * Telescope:Camera names (list if file contains multiple)
-        * Information in the file header
-        * Observation ID
     """
 
-    input_url = Unicode(
-        '',
-        help='Path to the input file containing events.'
+    input_url = Path(
+        directory_ok=False,
+        exists=True,
+        help="Path to the input file containing events.",
     ).tag(config=True)
+
     max_events = Int(
         None,
         allow_none=True,
-        help='Maximum number of events that will be read from the file'
+        help="Maximum number of events that will be read from the file",
     ).tag(config=True)
 
     allowed_tels = Set(
-        help=('list of allowed tel_ids, others will be ignored. '
-              'If left empty, all telescopes in the input stream '
-              'will be included')
+        default_value=None,
+        allow_none=True,
+        help=(
+            "list of allowed tel_ids, others will be ignored. "
+            "If None, all telescopes in the input stream "
+            "will be included"
+        ),
     ).tag(config=True)
 
-    def __init__(self, config=None, parent=None, **kwargs):
+    def __init__(self, input_url=None, config=None, parent=None, **kwargs):
         """
         Class to handle generic input files. Enables obtaining the "source"
         generator, regardless of the type of file (either hessio or camera
@@ -144,19 +139,15 @@ class EventSource(Component):
             Set to None if no Tool to pass.
         kwargs
         """
-        super().__init__(config=config, parent=parent, **kwargs)
+        super().__init__(config=config, parent=parent, input_url=input_url, **kwargs)
 
         self.metadata = dict(is_simulation=False)
-
-        if not exists(self.input_url):
-            raise FileNotFoundError("file path does not exist: '{}'"
-                                    .format(self.input_url))
         self.log.info(f"INPUT PATH = {self.input_url}")
 
         if self.max_events:
             self.log.info(f"Max events being read = {self.max_events}")
 
-        Provenance().add_input_file(self.input_url, role='dl0.sub.evt')
+        Provenance().add_input_file(str(self.input_url), role="DL0/Event")
 
     @staticmethod
     @abstractmethod
@@ -193,12 +184,58 @@ class EventSource(Component):
         """
         return False
 
+    @property
+    @abstractmethod
+    def subarray(self):
+        """
+        Obtain the subarray from the EventSource
+
+        Returns
+        -------
+        ctapipe.instrument.SubarrayDecription
+
+        """
+
+    @property
+    @abstractmethod
+    def is_simulation(self):
+        """
+        Weither the currently opened file is simulated
+
+        Returns
+        -------
+        bool
+
+        """
+
+    @property
+    @abstractmethod
+    def datalevels(self):
+        """
+        The datalevels provided by this event source
+
+        Returns
+        -------
+        tuple[ctapipe.io.DataLevel]
+        """
+
+    @property
+    @abstractmethod
+    def obs_id(self):
+        """
+        The current observation id
+
+        Returns
+        -------
+        int
+        """
+
     @abstractmethod
     def _generator(self):
         """
         Abstract method to be defined in child class.
 
-        Generator where the filling of the `ctapipe.io.containers` occurs.
+        Generator where the filling of the `ctapipe.containers` occurs.
 
         Returns
         -------
@@ -243,6 +280,13 @@ class EventSource(Component):
         instance
             Instance of a compatible EventSource subclass
         """
+        if input_url == "" or input_url is None:
+            raise ToolConfigurationError("EventSource: No input_url was specified")
+
+        # validate input url with the traitel validate method
+        # to make sure it's compatible and to raise the correct error
+        input_url = EventSource.input_url.validate(obj=None, value=input_url)
+
         detect_and_import_io_plugins()
         available_classes = non_abstract_children(cls)
 
@@ -251,10 +295,10 @@ class EventSource(Component):
                 return subcls(input_url=input_url, **kwargs)
 
         raise ValueError(
-            'Cannot find compatible EventSource for \n'
-            '\turl:{}\n'
-            'in available EventSources:\n'
-            '\t{}'.format(input_url, [c.__name__ for c in available_classes])
+            "Cannot find compatible EventSource for \n"
+            "\turl:{}\n"
+            "in available EventSources:\n"
+            "\t{}".format(input_url, [c.__name__ for c in available_classes])
         )
 
     @classmethod
@@ -278,15 +322,16 @@ class EventSource(Component):
         instance
             Instance of a compatible EventSource subclass
         """
+        if config is None and parent is None:
+            raise ValueError("One of config or parent must be provided")
+
+        if config is not None and parent is not None:
+            raise ValueError("Only one of config or parent must be provided")
+
         if config is None:
             config = parent.config
 
         if isinstance(config.EventSource.input_url, LazyConfigValue):
             config.EventSource.input_url = cls.input_url.default_value
-        elif not isinstance(config.EventSource.input_url, str):
-            raise TraitError("Wrong type specified for input_url traitlet")
-        return event_source(
-            config.EventSource.input_url,
-            config=config,
-            **kwargs
-        )
+
+        return event_source(config.EventSource.input_url, config=config, **kwargs)

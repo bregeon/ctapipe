@@ -1,70 +1,15 @@
+"""
+Definition of the `CameraCalibrator` class, providing all steps needed to apply
+calibration and image extraction, as well as supporting algorithms.
+"""
+
+import warnings
 import numpy as np
 from ctapipe.core import Component
-from ctapipe.image.reducer import NullDataVolumeReducer
 from ctapipe.image.extractor import NeighborPeakWindowSum
-import warnings
+from ctapipe.image.reducer import NullDataVolumeReducer
 
-__all__ = ['CameraCalibrator']
-
-
-def integration_correction(n_chan, pulse_shape, refstep, time_slice,
-                           window_width, window_shift):
-    """
-    Obtain the integration correction for the window specified.
-
-    This correction accounts for the cherenkov signal that may be missed due
-    to a smaller integration window by looking at the reference pulse shape.
-
-    Provides the same result as set_integration_correction from readhess.
-
-    Parameters
-    ----------
-    n_chan : int
-        Number of gain channels for the telescope
-    pulse_shape : ndarray
-        Numpy array containing the pulse shape for each channel.
-    refstep : int
-        The step in time for each sample of the reference pulse shape
-    time_slice : int
-        The step in time for each sample of the waveforms
-    window_width : int
-        Width of the integration window.
-    window_shift : int
-        Shift to before the peak for the start of the integration window.
-
-    Returns
-    -------
-    correction : list[2]
-        Value of the integration correction for this telescope for each
-        channel.
-    """
-    correction = np.ones(n_chan)
-    for chan in range(n_chan):
-        pshape = pulse_shape[chan]
-        if pshape.all() is False or time_slice == 0 or refstep == 0:
-            continue
-
-        ref_x = np.arange(0, pshape.size * refstep, refstep)
-        edges = np.arange(0, pshape.size * refstep + 1, time_slice)
-
-        sampled, sampled_edges = np.histogram(
-            ref_x, edges, weights=pshape, density=True
-        )
-        n_samples = sampled.size
-        start = sampled.argmax() - window_shift
-        end = start + window_width
-
-        if window_width > n_samples:
-            window_width = n_samples
-        if start < 0:
-            start = 0
-        if start + window_width > n_samples:
-            start = n_samples - window_width
-
-        integration = np.diff(sampled_edges)[start:end] * sampled[start:end]
-        correction[chan] = 1 / np.sum(integration)
-
-    return correction
+__all__ = ["CameraCalibrator"]
 
 
 class CameraCalibrator(Component):
@@ -72,13 +17,23 @@ class CameraCalibrator(Component):
     Calibrator to handle the full camera calibration chain, in order to fill
     the DL1 data level in the event container.
     """
-    def __init__(self, config=None, parent=None,
-                 data_volume_reducer=None,
-                 image_extractor=None,
-                 **kwargs):
+
+    def __init__(
+        self,
+        subarray,
+        config=None,
+        parent=None,
+        data_volume_reducer=None,
+        image_extractor=None,
+        **kwargs,
+    ):
         """
         Parameters
         ----------
+        subarray: ctapipe.instrument.SubarrayDescription
+            Description of the subarray. Provides information about the
+            camera which are useful in calibration. Also required for
+            configuring the TelescopeParameter traitlets.
         config : traitlets.loader.Config
             Configuration specified by config file or cmdline arguments.
             Used to set traitlet values.
@@ -94,58 +49,31 @@ class CameraCalibrator(Component):
         image_extractor : ctapipe.image.extractor.ImageExtractor
             The ImageExtractor to use. If None, then NeighborPeakWindowSum
             will be used by default.
+        subarray: ctapipe.instrument.SubarrayDescription
+            Description of the subarray
         kwargs
         """
         super().__init__(config=config, parent=parent, **kwargs)
+        self.subarray = subarray
 
         self._r1_empty_warn = False
         self._dl0_empty_warn = False
 
-        if data_volume_reducer is None:
-            data_volume_reducer = NullDataVolumeReducer(parent=self)
-        self.data_volume_reducer = data_volume_reducer
-
         if image_extractor is None:
-            image_extractor = NeighborPeakWindowSum(parent=self)
+            image_extractor = NeighborPeakWindowSum(parent=self, subarray=subarray)
         self.image_extractor = image_extractor
 
-    def _get_correction(self, event, telid):
-        """
-        Obtain the integration correction for this telescope.
-
-        Parameters
-        ----------
-        event : container
-            A `ctapipe` event container
-        telid : int
-            The telescope id.
-            The integration correction is calculated once per telescope.
-
-        Returns
-        -------
-        ndarray
-        """
-        try:
-            shift = self.image_extractor.window_shift
-            width = self.image_extractor.window_width
-            shape = event.mc.tel[telid].reference_pulse_shape
-            n_chan = shape.shape[0]
-            step = event.mc.tel[telid].meta['refstep']
-            time_slice = event.mc.tel[telid].time_slice
-            correction = integration_correction(n_chan, shape, step,
-                                                time_slice, width, shift)
-            return correction
-        except (AttributeError, KeyError):
-            # Don't apply correction when window_shift or window_width
-            # does not exist in extractor, or when container does not have
-            # a reference pulse shape
-            return np.ones(event.dl0.tel[telid].waveform.shape[0])
+        if data_volume_reducer is None:
+            data_volume_reducer = NullDataVolumeReducer(parent=self, subarray=subarray)
+        self.data_volume_reducer = data_volume_reducer
 
     def _check_r1_empty(self, waveforms):
         if waveforms is None:
             if not self._r1_empty_warn:
-                warnings.warn("Encountered an event with no R1 data. "
-                              "DL0 is unchanged in this circumstance.")
+                warnings.warn(
+                    "Encountered an event with no R1 data. "
+                    "DL0 is unchanged in this circumstance."
+                )
                 self._r1_empty_warn = True
             return True
         else:
@@ -154,8 +82,10 @@ class CameraCalibrator(Component):
     def _check_dl0_empty(self, waveforms):
         if waveforms is None:
             if not self._dl0_empty_warn:
-                warnings.warn("Encountered an event with no DL0 data. "
-                              "DL1 is unchanged in this circumstance.")
+                warnings.warn(
+                    "Encountered an event with no DL0 data. "
+                    "DL1 is unchanged in this circumstance."
+                )
                 self._dl0_empty_warn = True
             return True
         else:
@@ -163,17 +93,25 @@ class CameraCalibrator(Component):
 
     def _calibrate_dl0(self, event, telid):
         waveforms = event.r1.tel[telid].waveform
+        selected_gain_channel = event.r1.tel[telid].selected_gain_channel
         if self._check_r1_empty(waveforms):
             return
-        # TODO: Add gain selection
-        reduced_waveforms = self.data_volume_reducer(waveforms)
-        event.dl0.tel[telid].waveform = reduced_waveforms
+
+        reduced_waveforms_mask = self.data_volume_reducer(
+            waveforms, telid=telid, selected_gain_channel=selected_gain_channel
+        )
+
+        waveforms_copy = waveforms.copy()
+        waveforms_copy[~reduced_waveforms_mask] = 0
+        event.dl0.tel[telid].waveform = waveforms_copy
+        event.dl0.tel[telid].selected_gain_channel = selected_gain_channel
 
     def _calibrate_dl1(self, event, telid):
         waveforms = event.dl0.tel[telid].waveform
+        selected_gain_channel = event.r1.tel[telid].selected_gain_channel
         if self._check_dl0_empty(waveforms):
             return
-        n_samples = waveforms.shape[2]
+        n_pixels, n_samples = waveforms.shape
         if n_samples == 1:
             # To handle ASTRI and dst
             # TODO: Improved handling of ASTRI and dst
@@ -181,24 +119,22 @@ class CameraCalibrator(Component):
             #   - Read into dl1 container directly?
             #   - Don't do anything if dl1 container already filled
             #   - Update on SST review decision
-            corrected_charge = waveforms[..., 0]
-            pulse_time = np.zeros(waveforms.shape[0:2])
+            charge = waveforms[..., 0].astype(np.float32)
+            peak_time = np.zeros(n_pixels, dtype=np.float32)
         else:
-            # TODO: pass camera to ImageExtractor.__init__
-            if self.image_extractor.requires_neighbors():
-                camera = event.inst.subarray.tel[telid].camera
-                self.image_extractor.neighbors = camera.neighbor_matrix_where
-            charge, pulse_time = self.image_extractor(waveforms)
+            charge, peak_time = self.image_extractor(
+                waveforms, telid=telid, selected_gain_channel=selected_gain_channel
+            )
 
-            # Apply integration correction
-            # TODO: Remove integration correction
-            correction = self._get_correction(event, telid)[:, None]
-            corrected_charge = charge * correction
+        # Calibrate extracted charge
+        pedestal = event.calibration.tel[telid].dl1.pedestal_offset
+        absolute = event.calibration.tel[telid].dl1.absolute_factor
+        relative = event.calibration.tel[telid].dl1.relative_factor
+        charge -= pedestal
+        charge *= relative / absolute
 
-        event.dl1.tel[telid].image = corrected_charge
-        event.dl1.tel[telid].pulse_time = pulse_time
-
-        # TODO: Add charge calibration
+        event.dl1.tel[telid].image = charge
+        event.dl1.tel[telid].peak_time = peak_time
 
     def __call__(self, event):
         """
@@ -212,6 +148,7 @@ class CameraCalibrator(Component):
             A `ctapipe` event container
         """
         # TODO: How to handle different calibrations depending on telid?
-        for telid in event.r1.tel.keys():
+        tel = event.r1.tel or event.dl0.tel or event.dl1.tel
+        for telid in tel.keys():
             self._calibrate_dl0(event, telid)
             self._calibrate_dl1(event, telid)

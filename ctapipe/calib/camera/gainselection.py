@@ -7,10 +7,10 @@ import numpy as np
 from ctapipe.core import Component, traits
 
 __all__ = [
-    'GainChannel',
-    'GainSelector',
-    'ManualGainSelector',
-    'ThresholdGainSelector',
+    "GainChannel",
+    "GainSelector",
+    "ManualGainSelector",
+    "ThresholdGainSelector",
 ]
 
 
@@ -18,14 +18,14 @@ class GainChannel(IntEnum):
     """
     Possible gain channels
     """
+
     HIGH = 0
     LOW = 1
 
 
 class GainSelector(Component):
     """
-    Base class for algorithms that reduce a 2-gain-channel waveform to a
-    single waveform.
+    Base class for algorithms that decide on the gain channel to use
     """
 
     def __call__(self, waveforms):
@@ -40,26 +40,21 @@ class GainSelector(Component):
 
         Returns
         -------
-        reduced_waveforms : ndarray
-            Waveform with a single channel
-            Shape: (n_pix, n_samples)
+        selected_gain_channel : ndarray
+            Gain channel to use for each pixel
+            Shape: n_pix
+            Dtype: int8
         """
-        if waveforms.ndim == 2:  # Return if already gain selected
-            pixel_channel = None  # Provided by EventSource
-            return waveforms, pixel_channel
+        if waveforms.ndim == 2:  # Return None if already gain selected
+            return None
         elif waveforms.ndim == 3:
             n_channels, n_pixels, _ = waveforms.shape
-            if n_channels == 1:  # Reduce if already single channel
-                pixel_channel = np.zeros(n_pixels, dtype=int)
-                return waveforms[0], pixel_channel
+            if n_channels == 1:  # Must be first channel if only one channel
+                return np.zeros(n_pixels, dtype=np.int8)
             else:
-                pixel_channel = self.select_channel(waveforms)
-                gain_selected = waveforms[pixel_channel, np.arange(n_pixels)]
-                return gain_selected, pixel_channel
+                return self.select_channel(waveforms)
         else:
-            raise ValueError(
-                f"Cannot handle waveform array of shape: {waveforms.ndim}"
-            )
+            raise ValueError(f"Cannot handle waveform array of shape: {waveforms.ndim}")
 
     @abstractmethod
     def select_channel(self, waveforms):
@@ -77,10 +72,10 @@ class GainSelector(Component):
 
         Returns
         -------
-        pixel_channel : ndarray
+        selected_gain_channel : ndarray
             Gain channel to use for each pixel
             Shape: n_pix
-            Dtype: int
+            Dtype: int8
         """
 
 
@@ -88,10 +83,9 @@ class ManualGainSelector(GainSelector):
     """
     Manually choose a gain channel.
     """
+
     channel = traits.CaselessStrEnum(
-        ["HIGH", "LOW"],
-        default_value="HIGH",
-        help="Which gain channel to retain"
+        ["HIGH", "LOW"], default_value="HIGH", help="Which gain channel to retain"
     ).tag(config=True)
 
     def select_channel(self, waveforms):
@@ -103,12 +97,13 @@ class ThresholdGainSelector(GainSelector):
     """
     Select gain channel according to a maximum threshold value.
     """
+
     threshold = traits.Float(
-        default_value=1000,
+        default_value=4000,
         help="Threshold value in waveform sample units. If a waveform "
-             "contains a sample above this threshold, use the low gain "
-             "channel for that pixel."
+        "contains a sample above this threshold, use the low gain "
+        "channel for that pixel.",
     ).tag(config=True)
 
     def select_channel(self, waveforms):
-        return (waveforms[0] > self.threshold).any(axis=1).astype(int)
+        return (waveforms[0] > self.threshold).any(axis=1).astype(np.int8)

@@ -1,11 +1,12 @@
-from ctapipe.analysis.camera.charge_resolution import \
-    ChargeResolutionCalculator
+from ctapipe.analysis.camera.charge_resolution import ChargeResolutionCalculator
 import os
 import numpy as np
 import pandas as pd
 from ..charge_resolution import (
-    sum_errors, bin_dataframe,
-    ChargeResolutionPlotter, ChargeResolutionWRRPlotter
+    root_mean_square,
+    bin_dataframe,
+    ChargeResolutionPlotter,
+    ChargeResolutionWRRPlotter,
 )
 from numpy.testing import assert_almost_equal
 import pytest
@@ -20,15 +21,15 @@ def create_temp_cr_file(directory):
     df_p, df_c = chargeres.finish()
 
     output_path = os.path.join(str(directory), "cr.h5")
-    with pd.HDFStore(output_path, 'w') as store:
-        store['charge_resolution_pixel'] = df_p
-        store['charge_resolution_camera'] = df_c
+    with pd.HDFStore(output_path, "w") as store:
+        store["charge_resolution_pixel"] = df_p
+        store["charge_resolution_camera"] = df_c
     return output_path
 
 
-def test_sum_errors():
+def test_root_mean_square():
     errors = np.array([2, 5, 6, 7])
-    assert_almost_equal(sum_errors(errors), 5.339, 3)
+    assert_almost_equal(root_mean_square(errors), 5.339, 3)
 
 
 def test_bin_dataframe():
@@ -40,8 +41,8 @@ def test_bin_dataframe():
     df_p, df_c = chargeres.finish()
 
     df = bin_dataframe(df_p, 20)
-    assert 'bin' in df.columns
-    assert np.unique(df['bin']).size <= 20
+    assert "bin" in df.columns
+    assert np.unique(df["bin"]).size <= 20
 
 
 def test_file_reading(tmpdir):
@@ -56,8 +57,8 @@ def test_file_reading(tmpdir):
 def test_incorrect_file(tmpdir):
     path = os.path.join(str(tmpdir), "cr_incorrect.h5")
     output_path = os.path.join(str(tmpdir), "cr_incorrect.pdf")
-    with pd.HDFStore(path, 'w') as store:
-        store['test'] = pd.DataFrame(dict(a=[3]))
+    with pd.HDFStore(path, "w") as store:
+        store["test"] = pd.DataFrame(dict(a=[3]))
 
     plotter = ChargeResolutionPlotter(output_path=output_path)
     with pytest.raises(KeyError):

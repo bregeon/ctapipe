@@ -1,10 +1,11 @@
 """ Tests for SubarrayDescriptions """
+import tempfile
 import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 
 from ctapipe.instrument import (
-    CameraGeometry,
+    CameraDescription,
     OpticsDescription,
     SubarrayDescription,
     TelescopeDescription,
@@ -40,7 +41,7 @@ def test_subarray_description():
     assert sub.tel[1].camera is not None
     assert 0 not in sub.tel  # check that there is no tel 0 (1 is first above)
     assert len(sub.camera_types) == 1  # only 1 camera type
-    assert isinstance(sub.camera_types[0], CameraGeometry)
+    assert isinstance(sub.camera_types[0], CameraDescription)
     assert isinstance(sub.telescope_types[0], TelescopeDescription)
     assert isinstance(sub.optics_types[0], OpticsDescription)
     assert len(sub.telescope_types) == 1  # only have one type in this array
@@ -60,17 +61,16 @@ def test_subarray_description():
     assert sub.telescope_types[0] == sub.tel[1]
 
 
-def test_to_table(example_event):
+def test_to_table(example_subarray):
     """ Check that we can generate astropy Tables from the SubarrayDescription """
-    sub: SubarrayDescription = example_event.inst.subarray
-
+    sub = example_subarray
     assert len(sub.to_table(kind="subarray")) == sub.num_tels
     assert len(sub.to_table(kind="optics")) == len(sub.optics_types)
 
 
-def test_tel_indexing(example_event):
+def test_tel_indexing(example_subarray):
     """ Check that we can convert between telescope_id and telescope_index """
-    sub: SubarrayDescription = example_event.inst.subarray
+    sub = example_subarray
 
     assert sub.tel_indices[1] == 0  # first tel_id is in slot 0
     for tel_id in sub.tel_ids:
@@ -80,15 +80,54 @@ def test_tel_indexing(example_event):
     assert np.all(sub.tel_ids_to_indices([1, 2, 3]) == np.array([0, 1, 2]))
 
 
-def test_get_tel_ids_for_type(example_event):
+def test_tel_ids_to_mask(example_subarray):
+    lst = TelescopeDescription.from_name("LST", "LSTCam")
+    subarray = SubarrayDescription(
+        "someone_counted_in_binary",
+        tel_positions={1: [0, 0, 0] * u.m, 10: [50, 0, 0] * u.m},
+        tel_descriptions={1: lst, 10: lst},
+    )
+
+    assert np.all(subarray.tel_ids_to_mask([]) == [False, False])
+    assert np.all(subarray.tel_ids_to_mask([1]) == [True, False])
+    assert np.all(subarray.tel_ids_to_mask([10]) == [False, True])
+    assert np.all(subarray.tel_ids_to_mask([1, 10]) == [True, True])
+
+
+def test_get_tel_ids_for_type(example_subarray):
     """
     check that we can get a list of telescope ids by a telescope type, which can
     be passed by string or `TelescopeDescription` instance
     """
-    sub: SubarrayDescription = example_event.inst.subarray
-
+    sub = example_subarray
     types = sub.telescope_types
 
     for teltype in types:
         assert len(sub.get_tel_ids_for_type(teltype)) > 0
         assert len(sub.get_tel_ids_for_type(str(teltype))) > 0
+
+
+def test_hdf(example_subarray):
+    with tempfile.NamedTemporaryFile(suffix=".hdf5") as f:
+
+        example_subarray.to_hdf(f.name)
+        read = SubarrayDescription.from_hdf(f.name)
+
+        assert example_subarray == read
+
+    # test with a subarray that has two different telescopes with the same
+    # camera
+    tel = {
+        1: TelescopeDescription.from_name(optics_name="SST-ASTRI", camera_name="CHEC"),
+        2: TelescopeDescription.from_name(optics_name="SST-GCT", camera_name="CHEC"),
+    }
+    pos = {1: [0, 0, 0] * u.m, 2: [50, 0, 0] * u.m}
+
+    array = SubarrayDescription("test array", tel_positions=pos, tel_descriptions=tel)
+
+    with tempfile.NamedTemporaryFile(suffix=".hdf5") as f:
+
+        array.to_hdf(f.name)
+        read = SubarrayDescription.from_hdf(f.name)
+
+        assert array == read
